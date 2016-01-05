@@ -249,6 +249,7 @@ session.delete(jack)
 print(session.query(User).filter_by(name='jack').count()) # print 0
 # but his addresses still there (not deleted yet)
 print(session.query(Address).filter(Address.email.in_(['jack@nitz.org','spamone@mail.co'])).count())
+# can delete with filter
 
 # need to add cascade behaviour - close session and start over again
 session.close()
@@ -304,7 +305,7 @@ class Post(Base):
 		self.headline = headline
 
 	def __repr__(self):
-		return "Post(%r, %r)" % (self.headline)
+		return "Post(%r)" % (self.headline)
 
 class Keyword(Base):
 	__tablename__='keywords'
