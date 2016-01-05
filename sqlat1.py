@@ -1,8 +1,9 @@
 import sqlalchemy
 from sqlalchemy import Column, Integer, String, Sequence, text, func, create_engine, and_, or_
+from sqlalchemy import ForeignKey
 # allow creation of classes that include directives describing db table
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, aliased
+from sqlalchemy.orm import sessionmaker, aliased, relationship
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 
 # declarative_base creates a base class
@@ -157,4 +158,54 @@ regcount=session.query(func.count('*')).select_from(User).scalar()
 regcount=session.query(func.count(User.id)).select_from(User).scalar()
 print(regcount)
 
+# foreign keys and relationships
+# add a new class and map it to User class
+class Address(Base):
+	__tablename__='addresses'
+	id=Column(Integer, primary_key=True)
+	email=Column(String, nullable=False)
+	user_id=Column(Integer, ForeignKey('users.id'))
 
+	user = relationship("User", back_populates='addresses')
+
+	def __repr__(self):
+		return "<Address(email='%s')>" % self.email
+
+# back_populates is like backref
+# both sides will listen in on each other
+# so only ned to do a back_populates once to establish the relationship
+User.addresses = relationship("Address", order_by=Address.id, back_populates="user")
+
+# we gotta add the metadata for address class and its relationship with User
+Base.metadata.create_all(Engine)
+
+# adding users with addresses
+jack = User(name='jack', password='jack')
+print(jack.addresses) # this is nothing
+jack.addresses=[Address(email='jack@nitz.org'), Address(email='spamone@mail.co')]
+# accessing array of addresses
+print(jack.addresses)
+# can access user class too, because of their relationship
+print(jack.addresses[1].user)
+# add jack and commit
+session.add(jack)
+session.commit()
+print(jack.addresses)
+
+# implicit join
+for u, a in session.query(User, Address).filter(User.id==Address.user_id).filter(Address.email=='jack@nitz.org').all():
+	print(u)
+	print(a)
+# explicit join
+session.query(User).join(Address).filter(Address.email=='jack@nitz.org').all()
+
+# how to joins stuff
+# query.join(
+#	Address, User.id==Address.user.id)		# explicit
+#	User.addresses)							# left to right relationship
+#	Address, User.addresses)				# like above with target
+#	'addresses')							# like above with string	
+# .outerjoin()
+
+# use select_from(class) when:
+q = session.query(User, Address).select_from(Address).join(User)
