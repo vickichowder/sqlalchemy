@@ -1,10 +1,14 @@
+# importing libraries
 import sqlalchemy
 from sqlalchemy import Column, Integer, String, Sequence, text, func, create_engine, and_, or_
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, Table, Text
 # allow creation of classes that include directives describing db table
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, aliased, relationship
+# object relational ones
+from sqlalchemy.orm import sessionmaker, aliased, relationship, joinedload, contains_eager
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
+# sql ones
+from sqlalchemy.sql import exists
 
 # declarative_base creates a base class
 # to define any number of mapped classes
@@ -20,9 +24,6 @@ Engine = create_engine('sqlite:///:memory:', echo=True)
 Session = sessionmaker(bind=Engine)
 session = Session()
 
-############
-# sessions #
-############
 # creating sessions: session = Session()
 # define classes with session.query()
 # try: things.go(session), session.commit()
@@ -209,3 +210,110 @@ session.query(User).join(Address).filter(Address.email=='jack@nitz.org').all()
 
 # use select_from(class) when:
 q = session.query(User, Address).select_from(Address).join(User)
+
+alias1=aliased(Address)
+alias2=aliased(Address)
+for username,email1, email2 in session.query(User.name, alias1.email, alias2.email).join(alias1, User.addresses).join(alias2, User.addresses).filter(alias1.email=='jack@nitz.org').filter(alias2.email=='spamone@mail.co'):
+	print(username,email1,email2)
+
+# exists: exactly what it seems it is - returns boolean
+# using it explicitly
+stmt = exists().where(Address.user_id==User.id)
+for name, in session.query(User.name).filter(stmt):
+	print(name)
+
+# using any() which uses exists()
+for name, in session.query(User.name).filter(User.addresses.any()):
+	print(name)
+
+# comparisons 
+# == many to one equals
+# != many to one not equals
+# == None many to one is null
+# .contains() one to many collections
+# .any() collections
+# .has() scalars
+# .with_parent() any relationships
+
+# options() for joins and loads 
+# joinedload()
+# query will emit extra join
+jack = session.query(User).options(joinedload(User.addresses)).filter_by(name='jack').one()
+print(jack)
+# eager load
+jacks_addresses=session.query(Address).join(Address.user).filter(User.name=='jack').options(contains_eager(Address.user)).all()
+print(jacks_addresses)
+
+# deleting
+session.delete(jack)
+print(session.query(User).filter_by(name='jack').count()) # print 0
+# but his addresses still there (not deleted yet)
+print(session.query(Address).filter(Address.email.in_(['jack@nitz.org','spamone@mail.co'])).count())
+
+# need to add cascade behaviour - close session and start over again
+session.close()
+Base=declarative_base()
+class User(Base):
+	__tablename__ = 'users'
+	id = Column(Integer, primary_key=True)
+	name = Column(String)
+	password = Column(String)
+
+	addresses = relationship("Address", back_populates='user',cascade="all, delete, delete-orphan")
+
+	def __repr__(self):
+		return "<User(name='%s', password='%s'>" % (self.name, self.password) 
+
+class Address(Base):
+	__tablename__='addresses'
+	id=Column(Integer, primary_key=True)
+	email=Column(String, nullable=False)
+	user_id=Column(Integer, ForeignKey('users.id'))
+	user = relationship("User", back_populates='addresses')
+
+	def __repr__(self):
+		return "<Address(email='%s')>" % self.email	
+
+Base.metadata.create_all(Engine)
+
+jack=session.query(User).get(4)
+print(jack.addresses)
+del jack.addresses[1]
+print(jack.addresses)
+session.delete(jack)
+print(session.query(User).filter_by(name='jack').count())
+
+# Mappings
+# post and keywords both refer to post_keywords
+# association table
+post_keywords=Table('post_keywords', Base.metadata,
+	Column('post_id', ForeignKey(posts.id), primary_key=True),
+	Column('keyword_id', ForeignKey(keywords.id), primary_key=True))
+
+class Post(Base):
+	__tablename__='posts'
+	id = Column(Integer, primary_key=True)
+	user_id=Column(Integer, ForeignKey('users.id'))
+	headline=Column(String(200), nullable=False)
+
+	#many to many post to keywords
+	keywords=relationship('Keyword', secondary=post_keywords, back_populates='posts')
+
+	# the init method is optional when using declarative though
+	def __init__(self, headline): 
+		self.headline = headline
+
+	def __repr__(self):
+		return "Post(%r, %r)" % (self.headline)
+
+class Keyword(Base):
+	__tablename__='keywords'
+	id = Column(Integer, primary_key=True)
+	keyword=Column(Integer, nullable=False, unique=True)
+	posts=relationship('Post', secondary=post_keywords, back_populates='keywords')
+
+	def __init__(self, keyword): 
+		self.keyword = keyword
+
+Base.metadata.create_all(engine)
+
